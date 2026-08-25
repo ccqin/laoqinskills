@@ -45,7 +45,7 @@ dotnet run --file <本skill目录>/scripts/screenshot.cs -- [选项]
 | 按窗口标题截窗口 | `--mode window --title "记事本"` |
 | 按进程名截窗口(推荐,可省略 --mode window) | `--process notepad` 或 `--process notepad.exe` |
 | 按进程 PID 或窗口句柄截窗口 | `--pid 1234` / `--hwnd 0x80582`(句柄支持十进制和 0x 十六进制) |
-| **窗口内裁剪某控件**(配合 csharp-uia) | `--process notepad --region 492,215,90,23` |
+| **窗口内裁剪某控件**(配合 csharp-uia) | `--hwnd 0x80BFA --region 492,215,90,23`(hwnd 来自 uia find 输出) |
 | 指定输出文件 | `--out D:/shots/demo.png`(或简写 `-o`) |
 | JPEG + 质量 | `--format jpeg --quality 80` |
 | 截图前延迟 + 带鼠标光标 | `--delay 1.5 --cursor` |
@@ -58,15 +58,18 @@ dotnet run --file C:/Users/ccqin/.agents/skills/csharp-screenshot/scripts/screen
 
 ## 控件级截图:与 csharp-uia 协作
 
-本工具只认像素坐标。要截"某个按钮/控件"时,先用 csharp-uia 拿到控件的屏幕坐标,再把坐标作为 `--region` 与窗口定位参数组合(窗口经 PrintWindow 渲染后裁剪,**目标被其他窗口遮挡也能截准**):
+本工具只认像素坐标。要截"某个按钮/控件"时,先用 csharp-uia 拿到控件的屏幕坐标和窗口 hwnd,再用 **`--hwnd` + `--region`** 裁剪(窗口经 PrintWindow 渲染后裁剪,**目标被其他窗口遮挡也能截准**;hwnd 精确锁定窗口,多窗口同标题时不会错位):
 
 ```bash
-# 1) csharp-uia 找控件,输出 rect=左,上 宽x高
+# 1) csharp-uia 找控件,输出 rect=左,上 宽x高 和窗口 hwnd
 dotnet run --file C:/Users/ccqin/.agents/skills/csharp-uia/scripts/uia.cs -- --mode find --process notepad --name 确定
-#   → #1 Button "确定" ... rect=492,215 90x23 patterns=Invoke
-# 2) 用同窗口定位 + rect 截出控件小图
-dotnet run --file C:/Users/ccqin/.agents/skills/csharp-screenshot/scripts/screenshot.cs -- --process notepad --region 492,215,90,23
+#   → window: "…" hwnd=0x80BFA
+#     #1 Button "确定" ... rect=492,215 90x23 patterns=Invoke
+# 2) 用该 hwnd + rect 截出控件小图
+dotnet run --file C:/Users/ccqin/.agents/skills/csharp-screenshot/scripts/screenshot.cs -- --hwnd 0x80BFA --region 492,215,90,23
 ```
+
+窗口图按 **DWM 可见边框**(EXTENDED_FRAME_BOUNDS)对齐,与 uia 控件坐标同一网格:先按 GetWindowRect 渲染再裁掉约 5~7px 不可见缩放边框,控件裁剪无系统性偏移(已用标准边框窗口实测核验)。
 
 ## 参数一览
 
@@ -92,5 +95,6 @@ dotnet run --file C:/Users/ccqin/.agents/skills/csharp-screenshot/scripts/screen
 - `--mode window` 用 PrintWindow 渲染,即使目标窗口被其他窗口遮挡也能正确截取(适合截取 Agent 终端背后的窗口);窗口最小化时会报错,需先还原。
 - 窗口定位四选一、互斥:`--title` / `--process` / `--pid` / `--hwnd`。提供任一窗口定位参数时可省略 `--mode window`(自动切换);同时给 `--region` 则做窗口内裁剪。
 - `--mode list` 现在同时列出显示器和所有可见顶层窗口(标题/PID/进程/类名/hwnd/坐标),与 csharp-uia 的 `--mode list` 对齐,方便选目标。
+- `--title`/`--process`/`--pid` 查找已过滤 cloaked 幽灵窗口(UWP 挂起副本),与 uia 的窗口解析一致;要绝对精确时用 `--hwnd`。
 - 无法捕获 DRM 保护内容和独占全屏的 DirectX 游戏(这类需求需要 Windows Graphics Capture,超出本工具范围)。
 - 截完图后可以直接用 Read 工具查看生成的 PNG 以确认内容。

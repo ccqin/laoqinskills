@@ -47,7 +47,7 @@ internal static class App
     private const int PollIntervalMs = 150;
 
     private static readonly string[] Modes =
-        ["list", "tree", "find", "click", "set", "select", "toggle", "expand", "keys", "wait"];
+        ["list", "tree", "find", "click", "set", "select", "toggle", "expand", "keys", "wait", "scroll", "menu"];
 
     internal static int Run(string[] args)
     {
@@ -82,6 +82,8 @@ internal static class App
             "expand" => RunExpand(o),
             "keys" => RunKeys(o),
             "wait" => RunWait(o),
+            "scroll" => RunScroll(o),
+            "menu" => RunMenu(o),
             _ => throw new UsageException($"unknown mode '{o.Mode}'"),
         };
     }
@@ -103,6 +105,13 @@ internal static class App
         public string? Value;       // for set
         public string? Text;        // for keys
         public bool Collapse;
+        public bool Gone;          // wait: wait for disappearance instead of appearance
+        public bool AnyWindow;     // search all top-level windows of the target, not just the first
+        public bool Real;          // click: real mouse click at coordinates (moves the user's cursor)
+        public bool Right;         // click/menu: right mouse button
+        public bool Double;        // click: double click
+        public bool Hover;         // click: move pointer over the element, no button
+        public string? MenuText;   // menu: menu item text to find after right-clicking
         public double TimeoutSec = DefaultTimeoutMs / 1000.0;
         public string View = "content";   // content | control | raw
         public int Depth = DefaultDepth;
@@ -143,6 +152,13 @@ internal static class App
                 case "--value": o.Value = Next(); break;
                 case "--text": o.Text = Next(); break;
                 case "--collapse": o.Collapse = true; break;
+                case "--gone": o.Gone = true; break;
+                case "--any-window": o.AnyWindow = true; break;
+                case "--real": o.Real = true; break;
+                case "--right": o.Right = true; break;
+                case "--double": o.Double = true; break;
+                case "--hover": o.Hover = true; break;
+                case "--menu": o.MenuText = Next(); break;
                 case "--timeout": o.TimeoutSec = ParseDouble(Next(), t); break;
                 case "--view": o.View = Next(); break;
                 case "--depth": o.Depth = ParseInt(Next(), t); break;
@@ -173,12 +189,20 @@ internal static class App
             throw new UsageException($"mode '{o.Mode}' requires a window selector: --title/--process/--pid/--hwnd");
 
         bool hasElementSelector = o.Name != null || o.Id != null || o.ClassName != null || o.Control != null;
-        if (o.Mode is ("find" or "click" or "set" or "select" or "toggle" or "expand" or "keys") && !hasElementSelector)
+        if (o.Mode is ("find" or "click" or "set" or "select" or "toggle" or "expand" or "keys" or "scroll" or "menu") && !hasElementSelector)
             throw new UsageException($"mode '{o.Mode}' requires an element selector: --name/--id/--class/--control");
         if (o.Mode == "set" && o.Value == null)
             throw new UsageException("mode 'set' requires --value <text>");
         if (o.Mode == "keys" && string.IsNullOrEmpty(o.Text))
             throw new UsageException("mode 'keys' requires --text <keystrokes>");
+        if (o.Mode == "menu" && o.MenuText == null)
+            throw new UsageException("mode 'menu' requires --menu <item text>");
+        if (o.MenuText != null && o.Mode != "menu")
+            throw new UsageException("--menu is only valid with --mode menu");
+        if (o.Gone && o.Mode != "wait")
+            throw new UsageException("--gone is only valid with --mode wait");
+        if ((o.Real || o.Right || o.Double || o.Hover) && o.Mode is not ("click" or "menu"))
+            throw new UsageException("--real/--right/--double/--hover are only valid with --mode click or menu");
 
         return o;
     }
@@ -244,11 +268,11 @@ internal static class App
         return wins;
     }
 
-    /// <summary>Single attempt to resolve the target window; null if not found right now.</summary>
-    private static AutomationElement? TryResolveWindow(Options o)
+    /// <summary>All windows matching the selectors right now, on-screen ones first.</summary>
+    private static List<AutomationElement> TryResolveWindows(Options o)
     {
         if (o.Hwnd != 0)
-            return AutomationElement.FromHandle(new IntPtr(o.Hwnd));
+            return [AutomationElement.FromHandle(new IntPtr(o.Hwnd))];
 
         var candidates = TopLevelWindows();
         if (o.Pid != 0)
@@ -264,8 +288,15 @@ internal static class App
             candidates = candidates.Where(w => GetInfo(w)?.Name?.Contains(o.Title, StringComparison.OrdinalIgnoreCase) == true).ToList();
 
         // Prefer windows actually shown on screen (skips UWP cloaked ghosts).
-        return candidates.FirstOrDefault(w => GetInfo(w)?.IsOffscreen == false)
-            ?? candidates.FirstOrDefault();
+        var onScreen = candidates.Where(w => GetInfo(w)?.IsOffscreen == false).ToList();
+        return onScreen.Count > 0 ? onScreen : candidates;
+    }
+
+    /// <summary>Single attempt to resolve the target window; null if not found right now.</summary>
+    private static AutomationElement? TryResolveWindow(Options o)
+    {
+        var wins = TryResolveWindows(o);
+        return wins.Count > 0 ? wins[0] : null;
     }
 
     private sealed record ElementSnapshot(AutomationElement Element, int Depth);
@@ -323,7 +354,9 @@ internal static class App
         return ctx;
     }
 
-    /// <summary>Resolve window (+element when selectors given), polling until timeout.</summary>
+    /// <summary>Resolve window (+element when selectors given), polling until timeout.
+    /// --any-window: search every matching top-level window (popups/combobox dropdowns
+    /// are separate HWNDs), not just the first.</summary>
     private static (AutomationElement Win, ElementSnapshot? El) Resolve(Options o, bool needElement)
     {
         var sw = Stopwatch.StartNew();
@@ -333,11 +366,13 @@ internal static class App
 
         while (true)
         {
-            win = TryResolveWindow(o);
-            if (win != null)
+            var wins = TryResolveWindows(o);
+            var targets = o.AnyWindow ? wins : wins.Take(1).ToList();
+            if (targets.Count > 0)
             {
+                win = targets[0];
                 if (!needElement) return (win, null);
-                last = SearchOnce(o, win);
+                last = MergeSearch(o, targets);
                 if (last.Matches.Count > 0) return (win, PickMatch(o, last));
             }
             if (sw.ElapsedMilliseconds >= timeoutMs) break;
@@ -353,19 +388,60 @@ internal static class App
         throw new InvalidOperationException($"no element matched {ElementDesc(o)} within {Fmt(o.TimeoutSec)}s");
     }
 
+    private static SearchContext MergeSearch(Options o, List<AutomationElement> windows)
+    {
+        var merged = new SearchContext(o);
+        foreach (var w in windows)
+        {
+            var ctx = SearchOnce(o, w);
+            merged.Matches.AddRange(ctx.Matches);
+            merged.Visited += ctx.Visited;
+            merged.Truncated |= ctx.Truncated;
+        }
+        return merged;
+    }
+
+    /// <summary>Patterns the current mode can act on; empty for pure-read modes.</summary>
+    private static AutomationPattern[] NeededPatterns(Options o) => o.Mode switch
+    {
+        "click" => [InvokePattern.Pattern, SelectionItemPattern.Pattern, TogglePattern.Pattern],
+        "set" => [ValuePattern.Pattern],
+        "select" => [SelectionItemPattern.Pattern],
+        "toggle" => [TogglePattern.Pattern],
+        "expand" => [ExpandCollapsePattern.Pattern],
+        "scroll" => [ScrollItemPattern.Pattern],
+        _ => [],
+    };
+
     private static ElementSnapshot PickMatch(Options o, SearchContext ctx)
     {
-        if (ctx.Matches.Count > 1)
+        // Operate modes: prefer matches that actually support the needed pattern.
+        // WPF bridges popup content (combobox dropdowns, context menus) into the
+        // main-window tree as ghost copies without any pattern; the real element
+        // lives in the popup HWND (or further down the match list).
+        var usable = ctx.Matches;
+        var needed = NeededPatterns(o);
+        if (needed.Length > 0)
         {
-            Console.Error.WriteLine($"{ctx.Matches.Count} elements matched; using #{o.Index} (rerun with --index k to pick another):");
-            for (int i = 0; i < Math.Min(ctx.Matches.Count, 10); i++)
-                Console.Error.WriteLine($"  #{i + 1} {Describe(ctx.Matches[i].Element)}");
-            if (ctx.Matches.Count > 10)
-                Console.Error.WriteLine($"  ... and {ctx.Matches.Count - 10} more");
+            var withPattern = ctx.Matches.Where(m => needed.Any(p => m.Element.TryGetCurrentPattern(p, out _))).ToList();
+            if (withPattern.Count > 0)
+            {
+                if (withPattern.Count < ctx.Matches.Count)
+                    Console.Error.WriteLine($"skipped {ctx.Matches.Count - withPattern.Count} pattern-less ghost match(es); picking among {withPattern.Count} usable");
+                usable = withPattern;
+            }
         }
-        if (o.Index > ctx.Matches.Count)
-            throw new InvalidOperationException($"--index {o.Index} out of range: only {ctx.Matches.Count} match(es)");
-        return ctx.Matches[o.Index - 1];
+        if (usable.Count > 1)
+        {
+            Console.Error.WriteLine($"{usable.Count} elements matched; using #{o.Index} (rerun with --index k to pick another):");
+            for (int i = 0; i < Math.Min(usable.Count, 10); i++)
+                Console.Error.WriteLine($"  #{i + 1} {Describe(usable[i].Element)}");
+            if (usable.Count > 10)
+                Console.Error.WriteLine($"  ... and {usable.Count - 10} more");
+        }
+        if (o.Index > usable.Count)
+            throw new InvalidOperationException($"--index {o.Index} out of range: only {usable.Count} match(es)");
+        return usable[o.Index - 1];
     }
 
     private static string WindowDesc(Options o) =>
@@ -558,9 +634,10 @@ internal static class App
         var (win, _) = Resolve(o, needElement: false);
         var info = GetInfo(win);
         Console.WriteLine($"window: \"{Trim(info?.Name, 80)}\" pid={info?.ProcessId} " +
-                          $"hwnd=0x{(info?.NativeWindowHandle ?? 0).ToString("X", CultureInfo.InvariantCulture)}");
+                          $"hwnd=0x{(info?.NativeWindowHandle ?? 0).ToString("X", CultureInfo.InvariantCulture)}" +
+                          (o.AnyWindow ? " (+all matching windows)" : ""));
 
-        var ctx = SearchOnce(o, win);
+        var ctx = o.AnyWindow ? MergeSearch(o, TryResolveWindows(o)) : SearchOnce(o, win);
         if (ctx.Matches.Count == 0)
             throw new InvalidOperationException(
                 $"no element matched {ElementDesc(o)} (visited {ctx.Visited} nodes" +
@@ -581,6 +658,8 @@ internal static class App
     {
         var (win, el) = Resolve(o, needElement: true);
         var e = el!.Element;
+        if (o.Real || o.Right || o.Double || o.Hover)
+            return RealMouse(o, e);
         if (e.TryGetCurrentPattern(InvokePattern.Pattern, out object? p))
         {
             ((InvokePattern)p).Invoke();
@@ -673,26 +752,203 @@ internal static class App
         while (true)
         {
             var win = TryResolveWindow(o);
-            if (win != null)
+            List<ElementSnapshot> live = [];
+            if (win != null && hasElementSelector)
+                live = ValueMatches(o, SearchOnce(o, win).Matches);
+
+            if (o.Gone)
+            {
+                if (win == null)
+                {
+                    Console.WriteLine($"window gone: {WindowDesc(o)}");
+                    return 0;
+                }
+                if (hasElementSelector && live.Count == 0)
+                {
+                    Console.WriteLine("element gone: " + ElementDesc(o)
+                        + (o.Value != null ? $" (value~'{o.Value}')" : ""));
+                    return 0;
+                }
+            }
+            else if (win != null)
             {
                 if (!hasElementSelector)
                 {
                     Console.WriteLine($"window appeared: {Describe(win)}");
                     return 0;
                 }
-                var ctx = SearchOnce(o, win);
-                if (ctx.Matches.Count > 0)
+                if (live.Count > 0)
                 {
-                    Console.WriteLine($"element appeared: {Describe(ctx.Matches[0].Element)}");
+                    Console.WriteLine($"element appeared: {Describe(live[0].Element)}");
                     return 0;
                 }
             }
             if (sw.ElapsedMilliseconds >= timeoutMs) break;
             Thread.Sleep(PollIntervalMs);
         }
+        if (o.Gone)
+            throw new InvalidOperationException($"timed out after {Fmt(o.TimeoutSec)}s; still present: " +
+                (hasElementSelector ? $"element {ElementDesc(o)}" : $"window {WindowDesc(o)}"));
         throw new InvalidOperationException(
             $"timed out after {Fmt(o.TimeoutSec)}s waiting for " +
             (hasElementSelector ? $"element {ElementDesc(o)} in window {WindowDesc(o)}" : $"window {WindowDesc(o)}"));
+    }
+
+    /// <summary>wait --value &lt;substring&gt;: a match only counts when its Value (or Name for
+    /// text blocks without ValuePattern) contains the substring. Lets callers wait for a
+    /// status line to change, e.g. from "connecting" to "connected".</summary>
+    private static List<ElementSnapshot> ValueMatches(Options o, List<ElementSnapshot> matches)
+    {
+        if (o.Value == null) return matches;
+        return matches.Where(m =>
+        {
+            string s = ValueOf(m.Element) ?? GetInfo(m.Element)?.Name ?? "";
+            return s.Contains(o.Value, StringComparison.OrdinalIgnoreCase);
+        }).ToList();
+    }
+
+    private static int RunScroll(Options o)
+    {
+        var (win, el) = Resolve(o, needElement: true);
+        var e = el!.Element;
+
+        // With --value the element selector means the CONTAINER (List/Tree/Table):
+        // scroll through it in large increments until an item whose Name/Value
+        // contains the substring materializes (virtualized rows are absent from
+        // the UIA tree until scrolled into view), then bring that item into view.
+        if (o.Value != null)
+        {
+            if (!e.TryGetCurrentPattern(ScrollPattern.Pattern, out object? sp))
+                throw new InvalidOperationException($"scroll-search (--value) requires a container with ScrollPattern: {Describe(e)}; patterns={PatternsOf(e)}");
+            var scroll = (ScrollPattern)sp;
+            var so = new Options { Name = o.Value };
+            // Rewind to the top, then sweep downward screen by screen: virtualized
+            // items outside the viewport are absent from the tree, so one full
+            // top-to-bottom pass materializes everything regardless of the
+            // container's current scroll position.
+            try { scroll.SetScrollPercent(ScrollPattern.NoScroll, 0); Thread.Sleep(150); }
+            catch (InvalidOperationException) { /* not scrollable right now */ }
+            for (int round = 0; round < 300; round++)
+            {
+                var ctx = new SearchContext(so);
+                Walk(ctx, so, e, 0);
+                if (ctx.Matches.Count > 0)
+                {
+                    var item = ctx.Matches[0].Element;
+                    if (item.TryGetCurrentPattern(ScrollItemPattern.Pattern, out object? ip))
+                    {
+                        ((ScrollItemPattern)ip).ScrollIntoView();
+                        Thread.Sleep(150);
+                    }
+                    Console.WriteLine($"found and scrolled into view: {Describe(item)}");
+                    return 0;
+                }
+                double hBefore = scroll.Current.HorizontalScrollPercent;
+                double vBefore = scroll.Current.VerticalScrollPercent;
+                if (scroll.Current.VerticallyScrollable)
+                    scroll.ScrollVertical(ScrollAmount.LargeIncrement);
+                if (scroll.Current.HorizontallyScrollable)
+                    scroll.ScrollHorizontal(ScrollAmount.LargeIncrement);
+                Thread.Sleep(120);
+                if (scroll.Current.VerticalScrollPercent == vBefore &&
+                    scroll.Current.HorizontalScrollPercent == hBefore)
+                    break; // reached the end without a match
+            }
+            throw new InvalidOperationException(
+                $"no item matching '{o.Value}' found in the container even after scrolling to the end: {Describe(e)}");
+        }
+
+        if (!e.TryGetCurrentPattern(ScrollItemPattern.Pattern, out object? p))
+            throw new InvalidOperationException($"element has no ScrollItem pattern (cannot scroll into view): {Describe(e)}; patterns={PatternsOf(e)}");
+        ((ScrollItemPattern)p).ScrollIntoView();
+        Thread.Sleep(150); // let the container settle after scrolling
+        Console.WriteLine($"scrolled into view: {Describe(e)}");
+        return 0;
+    }
+
+    private static int RunMenu(Options o)
+    {
+        // Right-click the target element, then find and invoke a menu item in the
+        // popup (a separate top-level HWND of the same process), all in one run:
+        // the popup usually closes before a second process could search it.
+        var (win, el) = Resolve(o, needElement: true);
+        Console.Error.WriteLine($"right-clicking target: {Describe(el!.Element)}");
+        RealMouse(new Options { Mode = "click", Right = true }, el.Element);
+        Thread.Sleep(150);
+
+        var mo = new Options { Name = o.MenuText, Control = "MenuItem" };
+        var sw = Stopwatch.StartNew();
+        int timeoutMs = (int)(o.TimeoutSec * 1000);
+        while (true)
+        {
+            foreach (var w in TryResolveWindows(o))
+            {
+                var ctx = new SearchContext(mo);
+                Walk(ctx, mo, w, 0);
+                if (ctx.Matches.Count > 0)
+                {
+                    var item = ctx.Matches[Math.Min(o.Index, ctx.Matches.Count) - 1].Element;
+                    if (item.TryGetCurrentPattern(InvokePattern.Pattern, out object? p))
+                    {
+                        ((InvokePattern)p).Invoke();
+                        Console.WriteLine($"menu invoked: {Describe(item)}");
+                    }
+                    else
+                    {
+                        Console.Error.WriteLine("menu item has no Invoke pattern; coordinate-clicking it");
+                        RealMouse(new Options(), item);
+                    }
+                    return 0;
+                }
+            }
+            if (sw.ElapsedMilliseconds >= timeoutMs) break;
+            Thread.Sleep(80);
+        }
+        throw new InvalidOperationException(
+            $"menu item '{o.MenuText}' did not appear within {Fmt(o.TimeoutSec)}s after right-click");
+    }
+
+    /// <summary>Real mouse action on the element's rect center. Moves the user's cursor
+    /// and takes focus; use for controls without UIA patterns (ghost popup items,
+    /// custom-drawn buttons) or for right-click/double-click/hover semantics.</summary>
+    private static int RealMouse(Options o, AutomationElement e)
+    {
+        var info = GetInfo(e) ?? throw new InvalidOperationException("element vanished before mouse action");
+        if (info.Rect.IsEmpty || info.Rect.Width <= 0 || info.Rect.Height <= 0)
+            throw new InvalidOperationException($"element has no on-screen rect: {Describe(e)}");
+        int x = (int)Math.Round(info.Rect.Left + info.Rect.Width / 2);
+        int y = (int)Math.Round(info.Rect.Top + info.Rect.Height / 2);
+        string what = o.Hover ? "hover" : o.Right ? "right-click" : o.Double ? "double-click" : "click";
+        // Real clicks land on whatever is topmost at that screen point; raise the
+        // owning window first so an occluded target actually receives them.
+        if (info.NativeWindowHandle != 0)
+        {
+            SetForegroundWindow(new IntPtr(info.NativeWindowHandle));
+            Thread.Sleep(150);
+        }
+        SetCursorPos(x, y);
+        Thread.Sleep(80);
+        if (!o.Hover)
+        {
+            if (o.Right)
+            {
+                mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, UIntPtr.Zero);
+                mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, UIntPtr.Zero);
+            }
+            else
+            {
+                mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+                mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+                if (o.Double)
+                {
+                    Thread.Sleep(60);
+                    mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+                    mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+                }
+            }
+        }
+        Console.WriteLine($"{what} at {x},{y} on: {Describe(e)}");
+        return 0;
     }
 
     // ---------- help ----------
@@ -708,21 +964,31 @@ internal static class App
           list     list visible top-level windows (no window selector needed)
           tree     dump the UIA tree of the target window (read)
           find     search elements in the target window and print them with Bounds (read)
-          click    click via Invoke pattern (falls back to Select/Toggle)
+          click    click via Invoke pattern (falls back to Select/Toggle);
+                   --real/--right/--double/--hover: real mouse at the element's
+                   rect center (moves the cursor, needed for ghost popup items)
           set      write text via Value pattern (needs --value)
           select   select via SelectionItem pattern (tab item / list item)
           toggle   toggle via Toggle pattern
           expand   expand via ExpandCollapse pattern (--collapse to collapse)
           keys     send keystrokes via SendKeys (needs --text; steals foreground focus!)
-          wait     poll until the window/element appears (--timeout, default 3s)
+          wait     poll until the window/element appears (--timeout, default 3s);
+                   --gone: wait for disappearance; --value <sub>: only count matches
+                   whose Value (or Name) contains the substring (status changes)
+          scroll   bring the element into view via ScrollItem pattern (for
+                   offscreen items in long/virtualized lists)
+          menu     right-click the element, then find --menu <text> item in the
+                   popup and invoke it, all in one run (context menus)
 
         Window selectors (exactly one required except for list):
           --title <substring>     window title substring, case-insensitive
           --process <name>        process name, with or without .exe
           --pid <n>               process id
           --hwnd <n|0xHEX>        window handle
+          --any-window            search ALL matching top-level windows of the target,
+                                   not just the first (popups/dropdowns are separate HWNDs)
 
-        Element selectors (any combination; required for find/click/set/select/toggle/expand/keys):
+        Element selectors (any combination; required for find/click/set/select/toggle/expand/keys/scroll/menu):
           --name <substring>      element Name substring, case-insensitive
           --id <AutomationId>     exact AutomationId (most stable)
           --class <ClassName>     exact class name
@@ -730,9 +996,12 @@ internal static class App
           --index <n>             pick the n-th match (1-based, default 1)
 
         Options:
-          --value <text>          value for set
+          --value <text>          value for set; substring filter for wait
           --text <keys>           SendKeys syntax for keys, e.g. "hello{ENTER}" or "^a{DEL}"
+          --menu <text>           menu item text for --mode menu
           --collapse              for expand mode: collapse instead
+          --gone                  for wait mode: wait until gone instead of appeared
+          --real/--right/--double/--hover  for click/menu: real mouse at coordinates
           --timeout <seconds>     find/wait polling timeout (default 3)
           --view <content|control|raw>   tree walk view (default content)
           --depth <n>             max tree depth (default 30)
@@ -759,4 +1028,15 @@ internal static class App
 
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetCursorPos(int x, int y);
+
+    [DllImport("user32.dll")]
+    private static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
+
+    private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+    private const uint MOUSEEVENTF_LEFTUP = 0x0004;
+    private const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
+    private const uint MOUSEEVENTF_RIGHTUP = 0x0010;
 }

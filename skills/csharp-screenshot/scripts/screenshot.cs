@@ -313,20 +313,23 @@ internal static class App
         if (IsIconic(hwnd))
             throw new InvalidOperationException("target window is minimized; restore it first");
 
-        RECT r = WindowBounds(hwnd);
-        int w = r.Right - r.Left, h = r.Bottom - r.Top;
+        GetWindowRect(hwnd, out RECT win);
+        int w = win.Right - win.Left, h = win.Bottom - win.Top;
         if (w <= 0 || h <= 0)
             throw new InvalidOperationException("window has no visible bounds");
 
+        Bitmap? rendered = null;
         IntPtr screenDc = GetDC(IntPtr.Zero);
         IntPtr memDc = CreateCompatibleDC(screenDc);
         IntPtr hBitmap = CreateCompatibleBitmap(screenDc, w, h);
         IntPtr oldObj = SelectObject(memDc, hBitmap);
         try
         {
-            // PrintWindow renders the window even when occluded.
+            // PrintWindow renders the window even when occluded. It paints the FULL
+            // GetWindowRect area (including the invisible resize border) at (0,0),
+            // so the bitmap is sized to GetWindowRect, not the visible frame.
             if (PrintWindow(hwnd, memDc, PW_RENDERFULLCONTENT))
-                return Image.FromHbitmap(hBitmap);
+                rendered = Image.FromHbitmap(hBitmap);
         }
         finally
         {
@@ -336,7 +339,29 @@ internal static class App
             ReleaseDC(IntPtr.Zero, screenDc);
         }
         // Fallback for windows PrintWindow cannot handle: blit the screen area.
-        return CaptureRect(r, withCursor: false);
+        rendered ??= CaptureRect(win, withCursor: false);
+
+        // Trim the invisible borders so the bitmap origin equals the DWM extended
+        // (visible) frame origin — the same grid UIA BoundingRectangle uses —
+        // keeping --region cropping aligned with `uia --mode find` rects.
+        return TrimToExtendedBounds(rendered, hwnd, win);
+    }
+
+    /// <summary>Crop the invisible resize border off a GetWindowRect-sized capture
+    /// so the result lines up with the DWM extended frame bounds.</summary>
+    private static Bitmap TrimToExtendedBounds(Bitmap bmp, IntPtr hwnd, RECT win)
+    {
+        if (DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, out RECT ext, Marshal.SizeOf<RECT>()) != 0)
+            return bmp; // no DWM info; keep as-is
+        int x = Math.Clamp(ext.Left - win.Left, 0, bmp.Width);
+        int y = Math.Clamp(ext.Top - win.Top, 0, bmp.Height);
+        int w = Math.Clamp(ext.Right - ext.Left, 0, bmp.Width - x);
+        int h = Math.Clamp(ext.Bottom - ext.Top, 0, bmp.Height - y);
+        if (w <= 0 || h <= 0 || (x == 0 && y == 0 && w == bmp.Width && h == bmp.Height))
+            return bmp;
+        Bitmap cropped = bmp.Clone(new Rectangle(x, y, w, h), bmp.PixelFormat);
+        bmp.Dispose();
+        return cropped;
     }
 
     private static RECT WindowBounds(IntPtr hwnd)
@@ -500,7 +525,9 @@ internal static class App
         IntPtr? found = null;
         EnumWindows((hWnd, _) =>
         {
-            if (!IsWindowVisible(hWnd))
+            // Skip cloaked ghosts so title lookup picks the window that is
+            // actually on screen (matches csharp-uia's resolution).
+            if (!IsWindowVisible(hWnd) || IsCloaked(hWnd))
                 return true;
             int len = GetWindowTextLengthW(hWnd);
             if (len == 0)
@@ -563,7 +590,7 @@ internal static class App
         IntPtr? found = null;
         EnumWindows((hWnd, _) =>
         {
-            if (!IsWindowVisible(hWnd))
+            if (!IsWindowVisible(hWnd) || IsCloaked(hWnd))
                 return true;
             GetWindowThreadProcessId(hWnd, out uint pid);
             if (pids.Contains((int)pid))

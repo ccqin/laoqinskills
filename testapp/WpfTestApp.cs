@@ -64,15 +64,34 @@ public partial class MainWindow : Window
         inputPanel.Children.Add(btnAdd);
         inputPanel.Children.Add(chkReconnect);
 
-        // Tab:基本页 = ListBox;高级页 = Expander
+        // Tab:基本页 = ComboBox + ListBox;高级页 = Expander
         lstFruit.Items.Add("苹果");
         lstFruit.Items.Add("香蕉");
         lstFruit.Items.Add("橙子");
+        for (int i = 4; i <= 50; i++)
+            lstFruit.Items.Add($"项目{i:00}");
+
+        var cmbColor = new ComboBox { Margin = new Thickness(6), Width = 160 };
+        Aid(cmbColor, "cmbColor");
+        AutomationProperties.SetName(cmbColor, "颜色");
+        cmbColor.Items.Add("红");
+        cmbColor.Items.Add("绿");
+        cmbColor.Items.Add("蓝");
+        cmbColor.SelectedIndex = 0;
+        cmbColor.SelectionChanged += (_, e) =>
+        {
+            if (e.AddedItems.Count > 0)
+                txtStatus.Text = $"颜色:{e.AddedItems[0]}";
+        };
+
+        var basicPanel = new StackPanel();
+        basicPanel.Children.Add(cmbColor);
+        basicPanel.Children.Add(lstFruit);
 
         expMore.Header = "更多选项";
         expMore.Content = new TextBlock { Text = "展开后的内容", Margin = new Thickness(12, 6, 0, 6) };
 
-        var tabBasic = new TabItem { Header = "基本", Content = lstFruit };
+        var tabBasic = new TabItem { Header = "基本", Content = basicPanel };
         Aid(tabBasic, "tabBasic");
         var tabAdvanced = new TabItem { Header = "高级", Content = expMore };
         Aid(tabAdvanced, "tabAdvanced");
@@ -86,6 +105,16 @@ public partial class MainWindow : Window
         root.Items.Add(new TreeViewItem { Header = "报告" });
         root.Items.Add(new TreeViewItem { Header = "图片" });
         treeMain.Items.Add(root);
+
+        // TreeView 右键菜单(menu 模式测试目标)
+        var miRename = new MenuItem { Header = "重命名" };
+        miRename.Click += (_, _) => txtStatus.Text = "已重命名";
+        var miDelete = new MenuItem { Header = "删除" };
+        miDelete.Click += (_, _) => txtStatus.Text = "已删除";
+        var treeMenu = new ContextMenu();
+        treeMenu.Items.Add(miRename);
+        treeMenu.Items.Add(miDelete);
+        treeMain.ContextMenu = treeMenu;
 
         txtStatus.Margin = new Thickness(6);
         txtStatus.FontSize = 14;

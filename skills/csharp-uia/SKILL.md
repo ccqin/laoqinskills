@@ -38,11 +38,12 @@ dotnet run --file <本skill目录>/scripts/uia.cs -- [选项]
 
 **窗口定位（四选一，除 list 外必须给一个）：**
 `--title <子串>`（忽略大小写）/ `--process <名>`（带不带 .exe 均可）/ `--pid <n>` / `--hwnd <n|0xHEX>`
+加 `--any-window`：搜目标进程**全部**匹配顶层窗口而非第一个——弹层（ComboBox 下拉、ContextMenu、Popup）是独立 HWND，默认只搜主窗口时可能漏。
 
 **元素定位（可组合，除 tree/wait 外操作类必须至少给一个）：**
 `--name <子串>`（忽略大小写）/ `--id <AutomationId>`（最稳，精确）/ `--class <类名>` / `--control <类型>`（Button/Edit/ListItem/Text…） / `--index <n>`（默认第 1 个）
 
-多个元素匹配时默认取第 1 个，并在 stderr 列出全部候选（含序号），用 `--index` 选择。
+多个元素匹配时默认取第 1 个，并在 stderr 列出全部候选（含序号），用 `--index` 选择。**操作类模式（click/set/select/toggle/expand/scroll）会自动跳过不支持所需 pattern 的"幽灵匹配"**（如 WPF 弹层桥接进主窗口树的无 pattern 副本），在有 pattern 的真身中按 `--index` 取。
 
 ## 模式一览
 
@@ -51,13 +52,17 @@ dotnet run --file <本skill目录>/scripts/uia.cs -- [选项]
 | `list` | 列出可见顶层窗口（标题/PID/进程/类名/hwnd/坐标） | 无需窗口定位 |
 | `tree` | 导出目标窗口控件树（缩进文本或 JSON） | `--view content\|control\|raw`（默认 content）、`--depth`（默认30）、`--max-nodes`（默认4000）、`--format tree\|json`、`--out` |
 | `find` | 搜索元素并平铺输出（**坐标入口**） | 元素定位参数 |
-| `click` | Invoke 点击（无 Invoke 自动回退 Select/Toggle） | 元素定位参数 |
+| `click` | Invoke 点击（无 Invoke 自动回退 Select/Toggle） | 元素定位参数；`--real` 坐标真实点击（见下） |
 | `set` | 写文本（ValuePattern） | `--value <文本>` |
-| `select` | 选中 Tab 项/列表项（SelectionItem） | 元素定位参数 |
+| `select` | 选中 Tab 项/列表项/下拉项（SelectionItem） | 元素定位参数 |
 | `toggle` | 切换开关（Toggle） | 元素定位参数 |
 | `expand` | 展开/折叠（ExpandCollapse） | `--collapse` 反向 |
 | `keys` | 键盘输入（SetFocus + SendKeys，**会抢前台焦点**） | `--text "^a{DEL}abc"` |
-| `wait` | 轮询等待窗口/元素出现 | `--timeout <秒>`（默认 3） |
+| `wait` | 轮询等待窗口/元素出现 | `--timeout <秒>`（默认 3）；`--gone` 等**消失**；`--value <子串>` 只算 Value（无则 Name）含子串的匹配（等状态行变值） |
+| `scroll` | 滚动进视图 | 不带 `--value`：对元素 ScrollIntoView；带 `--value <子串>`：元素定位指**容器**，容器内边滚边找 Name 含子串的项并滚进视图（**虚拟化列表**未滚到的行不在 UIA 树里，find 不到时用它） |
+| `menu` | 右键元素 → 弹层中找菜单项 → Invoke（一次进程内完成，弹层稍纵即逝） | `--menu <菜单项文本>`；元素定位参数指向被右键的目标 |
+
+**真实鼠标修饰（click/menu 专用）**：`--real` 坐标左键点击、`--right` 右键、`--double` 双击、`--hover` 悬停。移动用户鼠标、抢前台（目标被遮挡会先激活它）；用于无 pattern 的控件（幽灵弹层项、自绘按钮）或需要真实鼠标语义的场景。
 
 所有查找默认内置 3 秒轮询重试（UI 是异步的，找不到≠不存在），可用 `--timeout` 调整。
 
@@ -83,8 +88,23 @@ $U --mode set --title "PLC" --id txtIp --value "192.168.0.1"
 $U --mode select --title "PLC" --name "Modbus 主站"
 $U --mode toggle --title "PLC" --name 自动重连
 
-# 等状态文字出现（最多10秒）
+# 等状态文字出现（最多10秒）/ 等它消失 / 等它变成某值
 $U --mode wait --title "PLC" --name "监听中" --timeout 10
+$U --mode wait --title "PLC" --name "连接中" --gone
+$U --mode wait --title "PLC" --id txtStatus --value "已连接"
+
+# 虚拟化长列表:容器内滚动查找并把目标滚进视图
+$U --mode scroll --title "PLC" --id lstLog --value "第999行"
+
+# 右键树节点弹菜单点"重命名"(一次进程内完成)
+$U --mode menu --title "PLC" --name 文档 --control TreeItem --menu 重命名
+
+# WPF ComboBox 选下拉项:先展开再 select(幽灵副本会被自动跳过)
+$U --mode expand --title "PLC" --id cmbColor
+$U --mode select --title "PLC" --name 绿 --control ListItem
+
+# 无 pattern 的控件用真实鼠标坐标点击 / 右键 / 双击 / 悬停
+$U --mode click --title "PLC" --id btnCustom --real
 ```
 
 ## 与 csharp-screenshot 协作（控件级截图）
@@ -92,16 +112,18 @@ $U --mode wait --title "PLC" --name "监听中" --timeout 10
 本工具输出的是文本和坐标（`rect=L,T WxH`，物理像素），截图交给 csharp-screenshot：
 
 ```bash
-# 1) 用 uia 拿控件的屏幕坐标
-uia --mode find --process notepad --name 确定        # → rect=492,215 90x23
-# 2) 用 screenshot 窗口+区域裁剪（PrintWindow 渲染，被遮挡也能截准）
-screenshot --process notepad --region 492,215,90,23 --out ok-btn.png
+# 1) 用 uia 拿控件的屏幕坐标(输出含窗口 hwnd=0x…)
+uia --mode find --process notepad --name 确定        # → rect=492,215 90x23, hwnd=0x80BFA
+# 2) screenshot 用 hwnd(最稳,多窗口同标题不错位)+ region 窗口内裁剪(PrintWindow 渲染,被遮挡也能截准)
+screenshot --hwnd 0x80BFA --region 492,215,90,23 --out ok-btn.png
 ```
 
 ## 注意事项
 
 - **能读什么**：正规控件的 Name/AutomationId/值/状态/坐标。Win32/WinForms/WPF/Qt/Electron 都支持；UIA 操作（click/set/select）不需要窗口在前台。
-- **读不到什么**：自绘内容（游戏/canvas/部分图表内部）、DataGrid/TreeView 虚拟化后未滚动到的行、未激活 Tab 懒加载的控件（WPF 下先 `select` 切过去再找）。
+- **读不到什么**：自绘内容（游戏/canvas/部分图表内部）、**虚拟化列表未滚动到的行**（用 `scroll --value` 容器滚动查找）、未激活 Tab 懒加载的控件（WPF 下先 `select` 切过去再找）。
+- **WPF 弹层（下拉/ContextMenu）**：弹层是独立 HWND，内容会以"幽灵副本"桥接进主窗口树（**无任何 pattern**，直接操作报错）。操作类模式已自动跳过幽灵选真身；ComboBox 选下拉项用 `expand` + `select`；仍找不到加 `--any-window`；右键菜单直接用 `menu` 模式。
+- **真实鼠标**（`--real/--right/--double/--hover`、`menu` 模式）**会移动用户鼠标并抢前台**；被遮挡的目标会先激活再点击；不要在用户操作电脑时使用。
 - **WinForms 的 TabControl 页签头不暴露给 UIA**（无法用 select 切 WinForms 页签，WPF 可以）。
 - **Chromium 系浏览器**（Chrome/Edge）默认不开 accessibility，页面内容读不到，需加启动参数 `--force-renderer-accessibility`。
 - **权限（UIPI）**：普通权限进程不能读写"以管理员运行"的窗口，反之可以。
@@ -113,4 +135,4 @@ screenshot --process notepad --region 492,215,90,23 --out ok-btn.png
 
 全部模式在 Win32/WinForms 真机测试通过（list/tree×3视图/find/set/click/select/toggle/expand/keys/wait/多匹配/越界/参数错误/退出码），并与 csharp-screenshot 完成控件级裁剪闭环验证。
 
-WPF 真机复验通过（测试程序 `../../testapp/WpfTestApp.cs`，覆盖 Button/TextBox/CheckBox/TabControl/ListBox/Expander/TreeView）：list/tree(content/control/raw/json)/find(--id/--name/--control)/set/click/select(Tab页签+列表项)/toggle/expand(Expander+TreeViewItem，含 --collapse)/wait/多匹配 --index/无 InvokePattern 报错退出码 1，uia find 拿坐标 + screenshot --region 控件级裁剪闭环亦通过。WPF 特有行为：未激活 Tab 页的控件不渲染，先 `select` 切页后才能 find；`keys` 模式受中文输入法干扰（见注意事项）。
+WPF 真机复验通过（测试程序为仓库根 `testapp/WpfTestApp.cs`，覆盖 Button/TextBox/CheckBox/TabControl/ListBox(50项)/ComboBox/Expander/TreeView+ContextMenu）：list/tree(content/control/raw/json)/find(--id/--name/--control)/set/click/select(Tab页签+列表项+**ComboBox下拉项**)/toggle/expand(Expander+TreeViewItem，含 `--collapse`)/wait(**含 `--gone`/`--value`**)/scroll(**容器滚动查找虚拟化项**)/menu(**右键→点弹层菜单项**)/多匹配 `--index`/`--any-window`/无 InvokePattern 报错退出码 1/`click --real` 前台激活后坐标点击，uia find 拿坐标 + screenshot `--hwnd`+`--region` 控件级裁剪闭环亦通过。WPF 特有行为：未激活 Tab 页的控件不渲染，先 `select` 切页后才能 find；弹层幽灵副本自动跳过；`keys` 模式受中文输入法干扰（见注意事项）。
