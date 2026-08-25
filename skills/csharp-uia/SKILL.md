@@ -113,4 +113,4 @@ screenshot --process notepad --region 492,215,90,23 --out ok-btn.png
 
 全部模式在 Win32/WinForms 真机测试通过（list/tree×3视图/find/set/click/select/toggle/expand/keys/wait/多匹配/越界/参数错误/退出码），并与 csharp-screenshot 完成控件级裁剪闭环验证。
 
-WPF 真机复验通过（测试程序 `../testapp/WpfTestApp.cs`，覆盖 Button/TextBox/CheckBox/TabControl/ListBox/Expander/TreeView）：list/tree(content/control/raw/json)/find(--id/--name/--control)/set/click/select(Tab页签+列表项)/toggle/expand(Expander+TreeViewItem，含 --collapse)/wait/多匹配 --index/无 InvokePattern 报错退出码 1，uia find 拿坐标 + screenshot --region 控件级裁剪闭环亦通过。WPF 特有行为：未激活 Tab 页的控件不渲染，先 `select` 切页后才能 find；`keys` 模式受中文输入法干扰（见注意事项）。
+WPF 真机复验通过（测试程序 `../../testapp/WpfTestApp.cs`，覆盖 Button/TextBox/CheckBox/TabControl/ListBox/Expander/TreeView）：list/tree(content/control/raw/json)/find(--id/--name/--control)/set/click/select(Tab页签+列表项)/toggle/expand(Expander+TreeViewItem，含 --collapse)/wait/多匹配 --index/无 InvokePattern 报错退出码 1，uia find 拿坐标 + screenshot --region 控件级裁剪闭环亦通过。WPF 特有行为：未激活 Tab 页的控件不渲染，先 `select` 切页后才能 find；`keys` 模式受中文输入法干扰（见注意事项）。

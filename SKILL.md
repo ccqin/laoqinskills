@@ -19,11 +19,15 @@ Windows 桌面自动化技能包的引导文件：**先在这里确定"要做的
 
 ## 怎么调用
 
-两个技能都是 .NET 10 File-Based App 单文件脚本，命令形态（`<目录>` 替换为 skill 实际路径，全局安装后在 `C:/Users/ccqin/.agents/skills/` 下）：
+两个技能都是 .NET 10 File-Based App 单文件脚本，位于本仓库 `skills/` 下（全局安装后平铺到 `C:/Users/ccqin/.agents/skills/`）。命令形态：
 
 ```bash
-uia        = dotnet run --file <目录>/csharp-uia/scripts/uia.cs --
-screenshot = dotnet run --file <目录>/csharp-screenshot/scripts/screenshot.cs --
+# 仓库内：
+uia        = dotnet run --file <包根>/skills/csharp-uia/scripts/uia.cs --
+screenshot = dotnet run --file <包根>/skills/csharp-screenshot/scripts/screenshot.cs --
+# 全局安装后：
+uia        = dotnet run --file C:/Users/ccqin/.agents/skills/csharp-uia/scripts/uia.cs --
+screenshot = dotnet run --file C:/Users/ccqin/.agents/skills/csharp-screenshot/scripts/screenshot.cs --
 ```
 
 - 始终带 `--file` 和 `--`；首次运行编译 5~15 秒，之后秒级
