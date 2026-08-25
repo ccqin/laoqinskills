@@ -7,6 +7,16 @@ description: Read window/control content and operate desktop apps via UI Automat
 
 用 .NET 10 File-Based App 编写的 Windows UI Automation 工具：单文件 `scripts/uia.cs`，通过 `dotnet run` 直接运行，零 NuGet 依赖（引用系统自带 UIAutomationClient/UIAutomationTypes）。**只做"读 + 操作"，不做截图**——需要像素截图时配合 `csharp-screenshot`（见下文协作流程）。
 
+## 用途
+
+**核心用途：调试 Windows 桌面程序（Win32/WinForms/WPF/Qt/Electron），不需要源码和调试器。**
+
+- **看程序当前真实的 UI 状态**：dump 控件树，读每个控件的名称、AutomationId、值、坐标和状态（选中/勾选/展开/禁用）。程序行为不对时，先看它界面实际长什么样、控件处于什么状态——比肉眼观察更准确（能看到隐藏值和状态）。
+- **定位控件**：按名称/AutomationId/类名/控件类型找控件并拿到屏幕坐标，是后续一切操作和控件级截图的入口。
+- **驱动程序复现问题**：模拟真实操作（点击、填值、选择、勾选、展开、发键）驱动程序走流程，替代手工点击，适合复现 bug、做自动化测试、批量重复操作。
+- **盯状态变化**：`wait` 轮询等待某个文字/控件出现，判断程序是否完成了某步操作、是否弹出了预期提示。
+- 与 `csharp-screenshot` 互补：本工具读**结构**（文本/值/状态/坐标），那个看**像素**（界面实际渲染成什么样）。
+
 ## 前提条件
 
 - Windows 系统 + .NET SDK 10 或更高（`dotnet --version` 检查）

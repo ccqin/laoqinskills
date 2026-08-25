@@ -7,6 +7,15 @@ description: Take screenshots on Windows via a C# .NET file-based app (single .c
 
 用 .NET 10 File-Based App 编写的 Windows 截图工具:单文件 `scripts/screenshot.cs`,通过 `dotnet run` 直接运行,仅一个 NuGet 依赖(System.Drawing.Common)。用 GDI BitBlt 抓屏并已启用 Per-Monitor V2 DPI 感知,高分屏不模糊、多显示器坐标准确。
 
+## 用途
+
+**核心用途：留存和查看界面当前实际渲染的像素内容。**
+
+- **看界面上实际显示了什么**：全屏 / 指定显示器 / 任意区域 / 某个程序的整窗口。目标窗口被其他窗口遮挡也能截准（PrintWindow 渲染），适合截取 Agent 终端背后的软件。
+- **截单个控件的小图**：配合 `csharp-uia` 拿到控件坐标后裁剪出按钮/输入框/图表区域的特写（见下文协作流程）。
+- **留存 UI 现场证据**：报错弹窗、异常界面、操作前后的对比，保存为 PNG/JPEG/BMP 文件供事后查看或发给他人。
+- 与 `csharp-uia` 互补：本工具看**像素**（渲染结果），那个读**结构**（控件树/值/状态）。
+
 ## 前提条件
 
 - Windows 系统 + .NET SDK 10 或更高(用 `dotnet --version` 检查)
