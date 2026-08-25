@@ -1,0 +1,6 @@
+# ZCode 会话数据
+.zcode/
+
+# .NET 构建产物
+obj/
+bin/
