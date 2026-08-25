@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pack
+        run: |
+          mkdir -p dist
+          zip -r "dist/laoqinskills-${GITHUB_REF_NAME}.zip" SKILL.md README.md skills testapp
+          ls -la dist/
+
+      # 打 v* 标签:生成正式版本 Release,附自动变更日志
+      - name: Release (tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true
+
+      # push 到 master:滚动更新 "latest" 预发布版,永远可下载最新内容
+      - name: Release (latest)
+        if: github.ref == 'refs/heads/master'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: 最新版 (latest)
+          prerelease: true
+          files: dist/*.zip
+          body: |
+            每次 push 到 master 自动构建的滚动版本。
+            构建来源: ${{ github.sha }}
