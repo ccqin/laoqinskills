@@ -17,9 +17,10 @@ jobs:
 
       - name: Pack
         run: |
-          mkdir -p dist
-          zip -r "dist/laoqinskills-${GITHUB_REF_NAME}.zip" SKILL.md README.md skills testapp
-          ls -la dist/
+          mkdir -p dist/laoqinskills
+          cp -r SKILL.md README.md docs scripts dist/laoqinskills/
+          cd dist && zip -r "laoqinskills-${GITHUB_REF_NAME}.zip" laoqinskills
+          cd .. && ls -la dist/ dist/laoqinskills/
 
       # 打 v* 标签:生成正式版本 Release,附自动变更日志
       - name: Release (tag)

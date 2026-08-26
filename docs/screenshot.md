@@ -1,9 +1,6 @@
----
-name: csharp-screenshot
-description: Take screenshots on Windows via a C# .NET file-based app (single .cs file run with dotnet run). Use this skill whenever the user wants to 截图、截屏、屏幕截图、区域截图、窗口截图、截取屏幕/桌面/窗口内容、按进程名或窗口标题截取某个程序、截取某个控件/按钮的截图, take a screenshot, capture the screen, capture a region / monitor / window by title, process name, pid or handle, crop a control-level screenshot inside a window using a screen-absolute rect, grab what is on screen, or save screen content to a PNG/JPEG/BMP image, even if they don't explicitly say "screenshot". Window capture works even when the target window is occluded by other windows. Supports full virtual screen across all monitors, a specific region, a specific monitor, cropping a rect inside a rendered window, plus delay, mouse cursor overlay, and JPEG quality control. For control coordinates pair with csharp-uia.
----
+# screenshot 详细用法(像素截图)
 
-# C# 截图工具 (csharp-screenshot)
+> laoqinskills 技能包中 screenshot 工具(`../scripts/screenshot.cs`)的完整参考;需求路由与速查见[../SKILL.md](../SKILL.md)。
 
 用 .NET 10 File-Based App 编写的 Windows 截图工具:单文件 `scripts/screenshot.cs`,通过 `dotnet run` 直接运行,仅一个 NuGet 依赖(System.Drawing.Common)。用 GDI BitBlt 抓屏并已启用 Per-Monitor V2 DPI 感知,高分屏不模糊、多显示器坐标准确。
 
@@ -12,9 +9,9 @@ description: Take screenshots on Windows via a C# .NET file-based app (single .c
 **核心用途：留存和查看界面当前实际渲染的像素内容。**
 
 - **看界面上实际显示了什么**：全屏 / 指定显示器 / 任意区域 / 某个程序的整窗口。目标窗口被其他窗口遮挡也能截准（PrintWindow 渲染），适合截取 Agent 终端背后的软件。
-- **截单个控件的小图**：配合 `csharp-uia` 拿到控件坐标后裁剪出按钮/输入框/图表区域的特写（见下文协作流程）。
+- **截单个控件的小图**：配合 `uia` 拿到控件坐标后裁剪出按钮/输入框/图表区域的特写（见下文协作流程）。
 - **留存 UI 现场证据**：报错弹窗、异常界面、操作前后的对比，保存为 PNG/JPEG/BMP 文件供事后查看或发给他人。
-- 与 `csharp-uia` 互补：本工具看**像素**（渲染结果），那个读**结构**（控件树/值/状态）。
+- 与 `uia` 互补：本工具看**像素**（渲染结果），那个读**结构**（控件树/值/状态）。
 
 ## 前提条件
 
@@ -25,12 +22,12 @@ description: Take screenshots on Windows via a C# .NET file-based app (single .c
 ## 调用方式
 
 ```bash
-dotnet run --file <本skill目录>/scripts/screenshot.cs -- [选项]
+dotnet run --file <本技能包>/scripts/screenshot.cs -- [选项]
 ```
 
 规则:
 - 始终带 `--file`(强制文件模式)和 `--`(把后面参数传给程序,防止被 dotnet CLI 截获)
-- `<本skill目录>` 替换为本 Skill 的绝对路径,例如 `C:/Users/ccqin/.agents/skills/csharp-screenshot`
+- `<本技能包>` 替换为本 Skill 的绝对路径,例如 `C:/Users/ccqin/.agents/skills/screenshot`
 - 成功时 stdout 输出**保存文件的绝对路径**,直接解析该行即可
 - 失败信息输出到 stderr;退出码:0 成功、1 运行错误、2 参数错误
 
@@ -45,7 +42,7 @@ dotnet run --file <本skill目录>/scripts/screenshot.cs -- [选项]
 | 按窗口标题截窗口 | `--mode window --title "记事本"` |
 | 按进程名截窗口(推荐,可省略 --mode window) | `--process notepad` 或 `--process notepad.exe` |
 | 按进程 PID 或窗口句柄截窗口 | `--pid 1234` / `--hwnd 0x80582`(句柄支持十进制和 0x 十六进制) |
-| **窗口内裁剪某控件**(配合 csharp-uia) | `--hwnd 0x80BFA --region 492,215,90,23`(hwnd 来自 uia find 输出) |
+| **窗口内裁剪某控件**(配合 uia) | `--hwnd 0x80BFA --region 492,215,90,23`(hwnd 来自 uia find 输出) |
 | 指定输出文件 | `--out D:/shots/demo.png`(或简写 `-o`) |
 | JPEG + 质量 | `--format jpeg --quality 80` |
 | 截图前延迟 + 带鼠标光标 | `--delay 1.5 --cursor` |
@@ -53,20 +50,20 @@ dotnet run --file <本skill目录>/scripts/screenshot.cs -- [选项]
 组合示例(延迟 2 秒后截取区域,存为 JPEG):
 
 ```bash
-dotnet run --file C:/Users/ccqin/.agents/skills/csharp-screenshot/scripts/screenshot.cs -- --mode region --region 0,0,1920,1080 --delay 2 --format jpeg --quality 85 --out D:/shots/region.jpg
+dotnet run --file C:/Users/ccqin/.agents/skills/laoqinskills/scripts/screenshot.cs -- --mode region --region 0,0,1920,1080 --delay 2 --format jpeg --quality 85 --out D:/shots/region.jpg
 ```
 
-## 控件级截图:与 csharp-uia 协作
+## 控件级截图:与 uia 协作
 
-本工具只认像素坐标。要截"某个按钮/控件"时,先用 csharp-uia 拿到控件的屏幕坐标和窗口 hwnd,再用 **`--hwnd` + `--region`** 裁剪(窗口经 PrintWindow 渲染后裁剪,**目标被其他窗口遮挡也能截准**;hwnd 精确锁定窗口,多窗口同标题时不会错位):
+本工具只认像素坐标。要截"某个按钮/控件"时,先用 uia 拿到控件的屏幕坐标和窗口 hwnd,再用 **`--hwnd` + `--region`** 裁剪(窗口经 PrintWindow 渲染后裁剪,**目标被其他窗口遮挡也能截准**;hwnd 精确锁定窗口,多窗口同标题时不会错位):
 
 ```bash
-# 1) csharp-uia 找控件,输出 rect=左,上 宽x高 和窗口 hwnd
-dotnet run --file C:/Users/ccqin/.agents/skills/csharp-uia/scripts/uia.cs -- --mode find --process notepad --name 确定
+# 1) uia 找控件,输出 rect=左,上 宽x高 和窗口 hwnd
+dotnet run --file C:/Users/ccqin/.agents/skills/laoqinskills/scripts/uia.cs -- --mode find --process notepad --name 确定
 #   → window: "…" hwnd=0x80BFA
 #     #1 Button "确定" ... rect=492,215 90x23 patterns=Invoke
 # 2) 用该 hwnd + rect 截出控件小图
-dotnet run --file C:/Users/ccqin/.agents/skills/csharp-screenshot/scripts/screenshot.cs -- --hwnd 0x80BFA --region 492,215,90,23
+dotnet run --file C:/Users/ccqin/.agents/skills/laoqinskills/scripts/screenshot.cs -- --hwnd 0x80BFA --region 492,215,90,23
 ```
 
 窗口图按 **DWM 可见边框**(EXTENDED_FRAME_BOUNDS)对齐,与 uia 控件坐标同一网格:先按 GetWindowRect 渲染再裁掉约 5~7px 不可见缩放边框,控件裁剪无系统性偏移(已用标准边框窗口实测核验)。
@@ -94,7 +91,7 @@ dotnet run --file C:/Users/ccqin/.agents/skills/csharp-screenshot/scripts/screen
 - 坐标一律是**物理像素**;多显示器时主屏左侧/上方的屏幕坐标为**负值**,可用 `--mode list` 确认布局。区域会自动钳制到虚拟屏幕/窗口范围内。
 - `--mode window` 用 PrintWindow 渲染,即使目标窗口被其他窗口遮挡也能正确截取(适合截取 Agent 终端背后的窗口);窗口最小化时会报错,需先还原。
 - 窗口定位四选一、互斥:`--title` / `--process` / `--pid` / `--hwnd`。提供任一窗口定位参数时可省略 `--mode window`(自动切换);同时给 `--region` 则做窗口内裁剪。
-- `--mode list` 现在同时列出显示器和所有可见顶层窗口(标题/PID/进程/类名/hwnd/坐标),与 csharp-uia 的 `--mode list` 对齐,方便选目标。
+- `--mode list` 现在同时列出显示器和所有可见顶层窗口(标题/PID/进程/类名/hwnd/坐标),与 uia 的 `--mode list` 对齐,方便选目标。
 - `--title`/`--process`/`--pid` 查找已过滤 cloaked 幽灵窗口(UWP 挂起副本),与 uia 的窗口解析一致;要绝对精确时用 `--hwnd`。
 - 无法捕获 DRM 保护内容和独占全屏的 DirectX 游戏(这类需求需要 Windows Graphics Capture,超出本工具范围)。
 - 截完图后可以直接用 Read 工具查看生成的 PNG 以确认内容。

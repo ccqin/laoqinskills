@@ -1,15 +1,15 @@
 ---
 name: laoqinskills
-description: Windows desktop automation skill pack main entry / router. Use when the user wants to 调试 Windows 程序、桌面自动化、读取或操作运行中软件的界面、给程序截图或截控件图, and the right sub-skill is not obvious. This file routes the need to csharp-uia (read & operate window/control content, debug Windows programs) or csharp-screenshot (pixel screenshots: full screen / monitor / region / window / control crop). 调试桌面软件、看程序界面里有什么、点按钮填表单、截屏截窗口截控件, start here.
+description: Windows desktop automation & debugging toolkit in ONE skill pack (uia + screenshot). Read window/control content and operate desktop apps via UI Automation, or take pixel screenshots - 读取运行中软件的窗口内容、获取界面控件/文本、导出控件树、查看窗口里的按钮/输入框文字、点击某个按钮、填写输入框、选择Tab/列表项/下拉框、右键菜单、勾选、发送按键、等待元素出现/消失/值变化、虚拟化列表滚动查找、自动化操作桌面程序 (Win32/WinForms/WPF/Qt/Electron), and 截图、截屏、屏幕截图、区域截图、窗口截图、截取屏幕/桌面/窗口内容、按进程名或窗口标题截取某个程序、截取某个控件/按钮的截图 - take a screenshot, capture the screen/region/monitor/window/control crop, dump or inspect a window's UI element tree, click a button, fill a text box, toggle a checkbox, wait for UI changes, automate any running Windows desktop app, debug Windows programs. 调试 Windows 程序、桌面自动化、调试桌面软件, start here.
 ---
 
-# laoqinskills 技能包(主入口)
+# laoqinskills(Windows 桌面自动化调试工具包)
 
-Windows 桌面自动化技能包的引导文件：**先在这里确定"要做的事"归哪个技能、用什么模式，再去对应 skill 目录执行。**
+一个技能包、两个工具：**uia 读结构+操作**（`scripts/uia.cs`）、**screenshot 看像素**（`scripts/screenshot.cs`）。本文件是入口路由：先确定"要做的事"归哪个工具、用什么模式；完整用法与已验证记录见 [docs/uia.md](docs/uia.md) 和 [docs/screenshot.md](docs/screenshot.md)。
 
-## 两个技能的分工
+## 两个工具的分工
 
-| 维度 | csharp-uia | csharp-screenshot |
+| 维度 | uia | screenshot |
 |---|---|---|
 | 角色 | 读**结构** + 模拟操作 | 看**像素** |
 | 能得到 | 控件树、名称/AutomationId、值、状态、物理像素坐标 | PNG/JPEG/BMP 图片文件 |
@@ -19,15 +19,11 @@ Windows 桌面自动化技能包的引导文件：**先在这里确定"要做的
 
 ## 怎么调用
 
-两个技能都是 .NET 10 File-Based App 单文件脚本，位于本仓库 `skills/` 下（全局安装后平铺到 `C:/Users/ccqin/.agents/skills/`）。命令形态：
+两个都是 .NET 10 File-Based App 单文件脚本，位于本技能包 `scripts/` 下。命令形态（`<本技能目录>` = 本包根目录，如全局安装后的 `C:/Users/ccqin/.agents/skills/laoqinskills`）：
 
 ```bash
-# 仓库内：
-uia        = dotnet run --file <包根>/skills/csharp-uia/scripts/uia.cs --
-screenshot = dotnet run --file <包根>/skills/csharp-screenshot/scripts/screenshot.cs --
-# 全局安装后：
-uia        = dotnet run --file C:/Users/ccqin/.agents/skills/csharp-uia/scripts/uia.cs --
-screenshot = dotnet run --file C:/Users/ccqin/.agents/skills/csharp-screenshot/scripts/screenshot.cs --
+uia        = dotnet run --file <本技能目录>/scripts/uia.cs --
+screenshot = dotnet run --file <本技能目录>/scripts/screenshot.cs --
 ```
 
 - 始终带 `--file` 和 `--`；首次运行编译 5~15 秒，之后秒级
@@ -99,7 +95,7 @@ uia --mode find --process notepad --name 确定
 screenshot --hwnd 0x80BFA --region 492,215,90,23 --out ok-btn.png
 ```
 
-## 注意事项速查（详细版见各 skill 的 SKILL.md）
+## 注意事项速查（详细版见 [docs/uia.md](docs/uia.md) / [docs/screenshot.md](docs/screenshot.md)）
 
 - **元素定位优先 `--id`**（AutomationId 稳定不随语言变），其次 `--name`；多匹配时默认取第 1 个，stderr 列出全部候选，用 `--index k` 选。
 - **填文本优先 `set`**；`keys` 会抢前台焦点，且中文输入法开启时字母会被组合成汉字（实测 `abc123` → "按不出23"），`keys` 只用于快捷键或先切英文输入法。

@@ -1,11 +1,8 @@
----
-name: csharp-uia
-description: Read window/control content and operate desktop apps via UI Automation (C# .NET single-file app, run with dotnet run). Use this skill whenever the user wants to 读取运行中软件的窗口内容、获取界面控件/文本、导出控件树、查看窗口里的按钮/输入框文字、点击某个按钮、填写输入框、选择Tab/列表项、自动化操作桌面程序, dump or inspect a window's UI element tree, read control names/values/text, click a button, fill a text box, select a tab or list item, toggle a checkbox, send keystrokes to a control, wait for an element to appear, automate any running Windows desktop app (Win32/WinForms/WPF/Qt/Electron), even if they don't say "UIA". This tool never takes screenshots - pair it with csharp-screenshot for pixels.
----
+# uia 详细用法(读结构与操作)
 
-# C# UIA 工具 (csharp-uia)
+> laoqinskills 技能包中 uia 工具(`../scripts/uia.cs`)的完整参考;需求路由与速查见[../SKILL.md](../SKILL.md)。
 
-用 .NET 10 File-Based App 编写的 Windows UI Automation 工具：单文件 `scripts/uia.cs`，通过 `dotnet run` 直接运行，零 NuGet 依赖（引用系统自带 UIAutomationClient/UIAutomationTypes）。**只做"读 + 操作"，不做截图**——需要像素截图时配合 `csharp-screenshot`（见下文协作流程）。
+用 .NET 10 File-Based App 编写的 Windows UI Automation 工具：单文件 `scripts/uia.cs`，通过 `dotnet run` 直接运行，零 NuGet 依赖（引用系统自带 UIAutomationClient/UIAutomationTypes）。**只做"读 + 操作"，不做截图**——需要像素截图时配合 screenshot 工具（见下文协作流程）。
 
 ## 用途
 
@@ -15,7 +12,7 @@ description: Read window/control content and operate desktop apps via UI Automat
 - **定位控件**：按名称/AutomationId/类名/控件类型找控件并拿到屏幕坐标，是后续一切操作和控件级截图的入口。
 - **驱动程序复现问题**：模拟真实操作（点击、填值、选择、勾选、展开、发键）驱动程序走流程，替代手工点击，适合复现 bug、做自动化测试、批量重复操作。
 - **盯状态变化**：`wait` 轮询等待某个文字/控件出现，判断程序是否完成了某步操作、是否弹出了预期提示。
-- 与 `csharp-screenshot` 互补：本工具读**结构**（文本/值/状态/坐标），那个看**像素**（界面实际渲染成什么样）。
+- 与 `screenshot` 互补：本工具读**结构**（文本/值/状态/坐标），那个看**像素**（界面实际渲染成什么样）。
 
 ## 前提条件
 
@@ -26,10 +23,10 @@ description: Read window/control content and operate desktop apps via UI Automat
 ## 调用方式
 
 ```bash
-dotnet run --file <本skill目录>/scripts/uia.cs -- [选项]
+dotnet run --file <本技能包>/scripts/uia.cs -- [选项]
 ```
 
-规则（与 csharp-screenshot 完全一致）：
+规则（与 screenshot 完全一致）：
 - 始终带 `--file` 和 `--`（防止参数被 dotnet CLI 截获）
 - 成功结果输出到 stdout（UTF-8）；错误到 stderr
 - 退出码：0 成功、1 运行错误（找不到窗口/元素、超时）、2 参数错误
@@ -69,7 +66,7 @@ dotnet run --file <本skill目录>/scripts/uia.cs -- [选项]
 ## 常用示例
 
 ```bash
-U="dotnet run --file <本skill目录>/scripts/uia.cs --"
+U="dotnet run --file <本技能包>/scripts/uia.cs --"
 
 # 看有哪些窗口
 $U --mode list
@@ -107,9 +104,9 @@ $U --mode select --title "PLC" --name 绿 --control ListItem
 $U --mode click --title "PLC" --id btnCustom --real
 ```
 
-## 与 csharp-screenshot 协作（控件级截图）
+## 与 screenshot 协作（控件级截图）
 
-本工具输出的是文本和坐标（`rect=L,T WxH`，物理像素），截图交给 csharp-screenshot：
+本工具输出的是文本和坐标（`rect=L,T WxH`，物理像素），截图交给 screenshot：
 
 ```bash
 # 1) 用 uia 拿控件的屏幕坐标(输出含窗口 hwnd=0x…)
@@ -133,6 +130,6 @@ screenshot --hwnd 0x80BFA --region 492,215,90,23 --out ok-btn.png
 
 ## 已验证
 
-全部模式在 Win32/WinForms 真机测试通过（list/tree×3视图/find/set/click/select/toggle/expand/keys/wait/多匹配/越界/参数错误/退出码），并与 csharp-screenshot 完成控件级裁剪闭环验证。
+全部模式在 Win32/WinForms 真机测试通过（list/tree×3视图/find/set/click/select/toggle/expand/keys/wait/多匹配/越界/参数错误/退出码），并与 screenshot 完成控件级裁剪闭环验证。
 
 WPF 真机复验通过（测试程序为仓库根 `testapp/WpfTestApp.cs`，覆盖 Button/TextBox/CheckBox/TabControl/ListBox(50项)/ComboBox/Expander/TreeView+ContextMenu）：list/tree(content/control/raw/json)/find(--id/--name/--control)/set/click/select(Tab页签+列表项+**ComboBox下拉项**)/toggle/expand(Expander+TreeViewItem，含 `--collapse`)/wait(**含 `--gone`/`--value`**)/scroll(**容器滚动查找虚拟化项**)/menu(**右键→点弹层菜单项**)/多匹配 `--index`/`--any-window`/无 InvokePattern 报错退出码 1/`click --real` 前台激活后坐标点击，uia find 拿坐标 + screenshot `--hwnd`+`--region` 控件级裁剪闭环亦通过。WPF 特有行为：未激活 Tab 页的控件不渲染，先 `select` 切页后才能 find；弹层幽灵副本自动跳过；`keys` 模式受中文输入法干扰（见注意事项）。
