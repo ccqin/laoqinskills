@@ -7,6 +7,19 @@ description: Windows desktop automation & debugging toolkit in ONE skill pack (u
 
 一个技能包、两个工具：**uia 读结构+操作**（`scripts/uia.cs`）、**screenshot 看像素**（`scripts/screenshot.cs`）。本文件是入口路由：先确定"要做的事"归哪个工具、用什么模式；完整用法与已验证记录见 [docs/uia.md](docs/uia.md) 和 [docs/screenshot.md](docs/screenshot.md)。
 
+## 使用范围
+
+两个工具都适用于**所有 Windows 桌面程序**：Win32（记事本、资源管理器、多数传统软件）、WinForms、WPF、Qt、Electron 等——只要程序实现了 UI Automation 即可（几乎所有正规桌面程序都支持，不限于 WPF）。读不到的仅限：自绘内容（游戏/canvas/图表内部）、DRM 保护、独占全屏；Chromium 浏览器页面内容需加启动参数 `--force-renderer-accessibility`。
+
+## 使用原则：优先 uia，不行再用 screenshot
+
+1. **先用 uia**：tree/find/click/set 等拿到的是**结构化数据**（名称/AutomationId/值/状态/精确坐标）——信息量大、可精确断言、能直接驱动操作，且不需要窗口在前台。
+2. **uia 搞不定时再降级用 screenshot**：
+   - uia 找不到/读不到内容（自绘按钮、图表内部、canvas 区域）
+   - 要看界面**实际渲染效果**（样式/颜色/布局对不对）
+   - 要留给人看的证据（报错弹窗、操作前后对比）
+3. 控件级截图 = 两者协作：uia find 拿精确坐标 → screenshot 按坐标裁剪（见下文协作流程）。
+
 ## 两个工具的分工
 
 | 维度 | uia | screenshot |
