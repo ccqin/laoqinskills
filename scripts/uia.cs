@@ -239,7 +239,8 @@ internal static class App
         int ProcessId, int NativeWindowHandle, System.Windows.Rect Rect,
         bool IsEnabled, bool IsOffscreen, bool IsPassword);
 
-    /// <summary>Fetch the common properties in one go; null if the element vanished.</summary>
+    /// <summary>Fetch the common properties in one go; null if the element vanished
+    /// or its provider is broken (some Win32/WinUI nodes throw on property access).</summary>
     private static ElInfo? GetInfo(AutomationElement e)
     {
         try
@@ -252,6 +253,7 @@ internal static class App
                 c.IsEnabled, c.IsOffscreen, c.IsPassword);
         }
         catch (ElementNotAvailableException) { return null; }
+        catch (NullReferenceException) { return null; }
     }
 
     // ---------- window / element resolution ----------
@@ -336,6 +338,7 @@ internal static class App
         AutomationElement? child = null;
         try { child = ctx.Walker.GetFirstChild(e); }
         catch (ElementNotAvailableException) { }
+        catch (NullReferenceException) { } // broken provider: treat as childless
         while (child != null)
         {
             Walk(ctx, o, child, depth + 1);
@@ -343,6 +346,7 @@ internal static class App
             AutomationElement? next = null;
             try { next = ctx.Walker.GetNextSibling(child); }
             catch (ElementNotAvailableException) { }
+            catch (NullReferenceException) { }
             child = next;
         }
     }
@@ -486,6 +490,7 @@ internal static class App
         if (info.IsPassword) return "********";
         try { return ((ValuePattern)p).Current.Value; }
         catch (ElementNotAvailableException) { return null; }
+        catch (NullReferenceException) { return null; }
     }
 
     private static string PatternsOf(AutomationElement e)
@@ -615,6 +620,7 @@ internal static class App
         AutomationElement? child = null;
         try { child = ctx.Walker.GetFirstChild(e); }
         catch (ElementNotAvailableException) { }
+        catch (NullReferenceException) { } // broken provider: treat as childless
         while (child != null)
         {
             if (jw != null) jw.WriteStartObject();
@@ -624,6 +630,7 @@ internal static class App
             AutomationElement? next = null;
             try { next = ctx.Walker.GetNextSibling(child); }
             catch (ElementNotAvailableException) { }
+            catch (NullReferenceException) { }
             child = next;
         }
         if (jw != null) jw.WriteEndArray();

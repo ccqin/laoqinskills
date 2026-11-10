@@ -132,4 +132,6 @@ screenshot --hwnd 0x80BFA --region 492,215,90,23 --out ok-btn.png
 
 全部模式在 Win32/WinForms 真机测试通过（list/tree×3视图/find/set/click/select/toggle/expand/keys/wait/多匹配/越界/参数错误/退出码），并与 screenshot 完成控件级裁剪闭环验证。
 
+Win32/WinUI 混合程序（文件资源管理器 CabinetWClass）tree 导出通过：状态栏/查看模式按钮/SysTreeView32 目录树均可读；过程中发现并修复了个别坏 provider 节点抛 NullReferenceException 导致整树导出失败的问题（现按"无子节点"跳过容错）。
+
 WPF 真机复验通过（测试程序为仓库根 `testapp/WpfTestApp.cs`，覆盖 Button/TextBox/CheckBox/TabControl/ListBox(50项)/ComboBox/Expander/TreeView+ContextMenu）：list/tree(content/control/raw/json)/find(--id/--name/--control)/set/click/select(Tab页签+列表项+**ComboBox下拉项**)/toggle/expand(Expander+TreeViewItem，含 `--collapse`)/wait(**含 `--gone`/`--value`**)/scroll(**容器滚动查找虚拟化项**)/menu(**右键→点弹层菜单项**)/多匹配 `--index`/`--any-window`/无 InvokePattern 报错退出码 1/`click --real` 前台激活后坐标点击，uia find 拿坐标 + screenshot `--hwnd`+`--region` 控件级裁剪闭环亦通过。WPF 特有行为：未激活 Tab 页的控件不渲染，先 `select` 切页后才能 find；弹层幽灵副本自动跳过；`keys` 模式受中文输入法干扰（见注意事项）。
